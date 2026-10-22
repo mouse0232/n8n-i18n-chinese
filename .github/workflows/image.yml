@@ -13,6 +13,9 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     environment: test
+    permissions:
+      actions: write
+      contents: read
     steps:
       # 检出指定标签的代码
       - name: 检出标签代码
@@ -50,3 +53,10 @@ jobs:
             -t mouse0232/n8n-chinese:latest \
             --push \
             .
+
+      # 中文镜像发布成功后，立即触发 Mock 镜像发布
+      - name: 中文镜像发布成功后触发 Mock 镜像发布
+        if: ${{ success() }}
+        run: gh workflow run image-mock.yml --ref main -f tag="${{ github.event.inputs.tag }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
