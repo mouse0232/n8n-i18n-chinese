@@ -46,7 +46,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg VERSION=$RELEASE_VERSION \
-            -t funcodingdev/n8n-chinese:$RELEASE_VERSION \
-            -t funcodingdev/n8n-chinese:latest \
+            -t mouse0232/n8n-chinese:$RELEASE_VERSION \
+            -t mouse0232/n8n-chinese:latest \
             --push \
             .

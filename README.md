@@ -7,9 +7,9 @@
 - **版本更新**：本仓库跟踪 n8n 的**官方最新发布版本**，包含最新功能和改进
 - **企业版功能**：打包的 Docker 镜像额外支持了**企业版功能解锁**，无需许可证即可使用所有企业特性
 - **两种镜像**：
-    - `funcodingdev/n8n-chinese`: 中文版镜像（不含企业版功能）
-    - `funcodingdev/n8n-mock`: 企业版镜像（不含中文汉化）
-    - `funcodingdev/n8n-chinese-mock`: 中文版 + 企业版功能镜像
+    - `mouse0232/n8n-chinese`: 中文版镜像（不含企业版功能）
+    - `mouse0232/n8n-mock`: 企业版镜像（不含中文汉化）
+    - `mouse0232/n8n-chinese-mock`: 中文版 + 企业版功能镜像
 
 ## 快速开始
 
@@ -20,7 +20,7 @@ docker run -it --rm --name n8n-chinese \
 -p 15678:5678 \
 -v ~/.n8n:/home/node/.n8n \
 -e N8N_SECURE_COOKIE=false \
-funcodingdev/n8n-chinese
+mouse0232/n8n-chinese
 ```
 
 ### 企业版镜像（不含中文汉化）
@@ -30,7 +30,7 @@ docker run -it --rm --name n8n-mock \
 -p 15678:5678 \
 -v ~/.n8n:/home/node/.n8n \
 -e N8N_SECURE_COOKIE=false \
-funcodingdev/n8n-mock
+mouse0232/n8n-mock
 ```
 
 ### 中文版 + 企业版功能镜像（推荐）
@@ -40,12 +40,12 @@ docker run -it --rm --name n8n-chinese-mock \
 -p 15678:5678 \
 -v ~/.n8n:/home/node/.n8n \
 -e N8N_SECURE_COOKIE=false \
-funcodingdev/n8n-chinese-mock
+mouse0232/n8n-chinese-mock
 ```
 
 ## 企业版功能说明
 
-使用 `funcodingdev/n8n-mock` 和 `funcodingdev/n8n-chinese-mock` 镜像可以解锁以下企业版功能：
+使用 `mouse0232/n8n-mock` 和 `mouse0232/n8n-chinese-mock` 镜像可以解锁以下企业版功能：
 
 - 高级权限管理
 - LDAP/SAML 单点登录

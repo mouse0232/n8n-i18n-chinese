@@ -91,9 +91,10 @@ jobs:
       run: pnpm install --frozen-lockfile && pnpm run translate
       working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese/script
       env:
-        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
-        OPENROUTER_API_CONCURRENT: ${{ vars.OPENROUTER_API_CONCURRENT }}
+        AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        AI_API_BASE: ${{ vars.AI_API_BASE }}
+        AI_MODEL: ${{ vars.AI_MODEL }}
+        AI_API_CONCURRENT: ${{ vars.AI_API_CONCURRENT }}
 
     # 提交翻译结果到 Git 仓库
     - name: 提交翻译结果
