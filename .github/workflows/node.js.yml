@@ -22,7 +22,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [24.x]
     steps:
     # 获取 N8N 最新的发布版本号
     - name: 获取最新发布版本
@@ -39,11 +39,17 @@ jobs:
         echo "✅ Latest Release tag: $LATEST_VERSION"
         echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
 
-    # 配置包管理器 corepack 和 pnpm
-    - name: 配置包管理器
-      run: |
-        npm i -g corepack@0.31
-        corepack enable
+    # pnpm 12 是原生二进制，Corepack 0.31 仍查找已不存在的 bin/pnpm.cjs
+    - name: 安装 pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 12.4.2
+
+    # n8n 当前要求 Node >= 24
+    - name: 设置 Node.js 环境
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
 
     # 检出本地中文化项目仓库
     - name: 检出本地仓库
@@ -126,13 +132,6 @@ jobs:
         repository: n8n-io/n8n
         ref: ${{ steps.latest_release.outputs.latest }}
         path: ./n8n
-
-    # 设置 Node.js 环境
-    - name: 设置 Node.js 环境
-      uses: actions/setup-node@v4.2.0
-      if: steps.check_tag.outputs.exists == 'false'
-      with:
-        node-version: 22.x
 
     # 配置 pnpm 使用最高版本解析模式
     - name: 设置 pnpm 解析模式
