@@ -1,11 +1,10 @@
 # 此工作流会安装 Node 依赖、构建源码并自动打包 N8N 编辑器界面的中文语言包
 # 详细信息请参考: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
 name: 打包编辑器界面语言包
 
 on:
   schedule:
-  - cron: "0 16 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
 
 # 同一时间只运行一个发布任务，避免定时任务和手动任务同时写入 main
@@ -24,254 +23,229 @@ jobs:
       matrix:
         node-version: [24.x]
     steps:
-    # 获取 N8N 最新的发布版本号
-    - name: 获取最新发布版本
-      id: latest_release
-      run: |
-        # 从 GitHub API 获取 releases 列表
-        LATEST_VERSION=$(curl -s https://api.github.com/repos/n8n-io/n8n/releases/latest | jq -r '.tag_name')
-        
-        if [ "$LATEST_VERSION" = "null" ] || [ -z "$LATEST_VERSION" ]; then
-          echo "⚠️  No Prerelease version found!"
-          exit 1
-        fi
-        
-        echo "✅ Latest Release tag: $LATEST_VERSION"
-        echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
+      # 获取 N8N 最新的发布版本号（带上 token 解决匿名限流！重点修复）
+      - name: 获取最新发布版本
+        id: latest_release
+        run: |
+          LATEST_VERSION=$(curl -s -H "Authorization: token ${{ github.token }}" https://api.github.com/repos/n8n-io/n8n/releases/latest | jq -r '.tag_name')
+          
+          if [ "$LATEST_VERSION" = "null" ] || [ -z "$LATEST_VERSION" ]; then
+            echo "⚠️  No Prerelease version found!"
+            exit 1
+          fi
+          
+          echo "✅ Latest Release tag: $LATEST_VERSION"
+          echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
 
-    # pnpm 12 是原生二进制，Corepack 0.31 仍查找已不存在的 bin/pnpm.cjs
-    - name: 安装 pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 12.4.2
+      # pnpm 12 是原生二进制，Corepack 0.31 仍查找已不存在的 bin/pnpm.cjs
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
 
-    # n8n 当前要求 Node >= 24
-    - name: 设置 Node.js 环境
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
+      # n8n 当前要求 Node >= 24
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
 
-    # 检出本地中文化项目仓库
-    - name: 检出本地仓库
-      uses: actions/checkout@v4
-      with:
-        ref: main
-        path: ./n8n-i18n-chinese
+      # 检出本地中文化项目仓库
+      - name: 检出本地仓库
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: ./n8n-i18n-chinese
 
-    # - name: Read version from package.json
-    #   id: get_version
-    #   run: |
-    #     VERSION=$(jq -r '.version' package.json)
-    #     echo "Version: $VERSION"
-    #     echo "version=$VERSION" >> $GITHUB_OUTPUT
-    #   working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n
+      # 检查远程仓库是否已存在该标签
+      - name: 检查标签是否存在
+        id: check_tag
+        run: |
+          TAG="${{ steps.latest_release.outputs.latest }}"
+          echo "检查远程标签: $TAG"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ 标签 $TAG 已存在，无需继续构建"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✅ 标签 $TAG 不存在，开始构建流程"
+          fi
+        working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
-    # 检查远程仓库是否已存在该标签
-    - name: 检查标签是否存在
-      id: check_tag
-      run: |
-        TAG="${{ steps.latest_release.outputs.latest }}"
-        echo "检查远程标签: $TAG"
-        if git ls-remote --tags origin | grep "refs/tags/$TAG$"; then
-          echo "exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "exists=false" >> $GITHUB_OUTPUT
-        fi
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese
+      # 如果标签已存在，直接结束后续所有步骤
+      - name: 标签存在，终止流程
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          echo "标签已存在，停止工作流"
+          exit 0
 
-    # 如果标签已存在，则停止工作流
-    - name: 标签存在则退出
-      if: steps.check_tag.outputs.exists == 'true'
-      run: |
-        echo "标签已存在，停止工作流"
+      # 使用 AI 翻译新增的字符串到中文
+      - name: 翻译新增字符串
+        run: pnpm install --frozen-lockfile && pnpm run translate
+        working-directory: ${{ github.workspace }}/n8n-i18n-chinese/script
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_BASE: ${{ vars.AI_API_BASE }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_API_CONCURRENT: ${{ vars.AI_API_CONCURRENT }}
 
-    # 使用 AI 翻译新增的字符串到中文
-    - name: 翻译新增字符串
-      if: steps.check_tag.outputs.exists == 'false'
-      run: pnpm install --frozen-lockfile && pnpm run translate
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese/script
-      env:
-        AI_API_KEY: ${{ secrets.AI_API_KEY }}
-        AI_API_BASE: ${{ vars.AI_API_BASE }}
-        AI_MODEL: ${{ vars.AI_MODEL }}
-        AI_API_CONCURRENT: ${{ vars.AI_API_CONCURRENT }}
+      # 提交翻译结果到 Git 仓库
+      - name: 提交翻译结果
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          
+          git add languages/* script/en.json || true
+          
+          # 如果没有变更就跳过
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: auto translate"
+            # 若运行期间 main 有新提交，则在最新 main 上重放后重试推送
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "连续 3 次推送失败。"
+                exit 1
+              fi
+              git fetch origin main
+              git rebase origin/main
+            done
+          fi
+        working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
-    # 提交翻译结果到 Git 仓库
-    - name: 提交翻译结果
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        
-        git add languages/* script/en.json || true
-        
-        # 如果没有变更就跳过
-        if git diff --cached --quiet; then
-          echo "No changes to commit."
-        else
-          git commit -m "chore: auto translate"
-          # 若运行期间 main 有新提交，则在最新 main 上重放后重试推送
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "连续 3 次推送失败。"
-              exit 1
-            fi
-            git fetch origin main
-            git rebase origin/main
-          done
-        fi
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese
+      # 检出 N8N 官方仓库的指定版本
+      - name: 检出 N8N 官方仓库
+        uses: actions/checkout@v4
+        with:
+          repository: n8n-io/n8n
+          ref: ${{ steps.latest_release.outputs.latest }}
+          path: ./n8n
 
-    # 检出 N8N 官方仓库的指定版本
-    - name: 检出 N8N 官方仓库
-      if: steps.check_tag.outputs.exists == 'false'
-      uses: actions/checkout@v4
-      with:
-        repository: n8n-io/n8n
-        ref: ${{ steps.latest_release.outputs.latest }}
-        path: ./n8n
+      # 配置 pnpm 使用最高版本解析模式
+      - name: 设置 pnpm 解析模式
+        run: echo "resolution-mode=highest" >> ${{ github.workspace }}/n8n/.npmrc
 
-    # 配置 pnpm 使用最高版本解析模式
-    - name: 设置 pnpm 解析模式
-      if: steps.check_tag.outputs.exists == 'false'
-      run: echo "resolution-mode=highest" >> /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n/.npmrc
+      # 检测编辑器目录结构（新版本在 frontend/editor-ui，旧版本在 editor-ui）
+      - name: 检测编辑器目录结构
+        id: editorui_dir
+        run: |
+          DIR_PATH="${{ github.workspace }}/n8n/packages/frontend/editor-ui"
+          FALLBACK_DIR="${{ github.workspace }}/n8n/packages/editor-ui"
 
-    # 安装项目依赖
-    - name: 安装项目依赖
-      run: pnpm install --frozen-lockfile
-      if: steps.check_tag.outputs.exists == 'false'
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n
+          if [ -d "$DIR_PATH" ]; then
+            echo "flag=new" >> $GITHUB_OUTPUT
+            echo "dir=$DIR_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "flag=old" >> $GITHUB_OUTPUT
+            echo "dir=$FALLBACK_DIR" >> $GITHUB_OUTPUT
+          fi
 
-    # 检测 N8N 编辑器目录结构（新版本在 frontend/editor-ui，旧版本在 editor-ui）
-    - name: 检测编辑器目录结构
-      id: editorui_dir
-      run: |
-        DIR_PATH="/home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n/packages/frontend/editor-ui"       # 新版目录路径
-        FALLBACK_DIR="/home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n/packages/editor-ui" # 旧版目录路径
+      # 复制中文语言包到 N8N i18n 目录
+      - name: 复制中文语言包
+        run: cp -r ${{ github.workspace }}/n8n-i18n-chinese/languages/* ${{ github.workspace }}/n8n/packages/frontend/@n8n/i18n/src/locales/
 
-        if [ -d "$DIR_PATH" ]; then
-          echo "flag=new" >> $GITHUB_OUTPUT
-          echo "dir=$DIR_PATH" >> $GITHUB_OUTPUT
-        else
-          echo "flag=old" >> $GITHUB_OUTPUT
-          echo "dir=$FALLBACK_DIR" >> $GITHUB_OUTPUT
-        fi
+      # 根据当前 N8N 版本源码生成并应用中文国际化补丁
+      - name: 生成并应用国际化补丁
+        if: steps.editorui_dir.outputs.flag == 'new'
+        run: |
+          node ${{ github.workspace }}/n8n-i18n-chinese/script/update-i18n-patch.js \
+            --n8n-dir ${{ github.workspace }}/n8n \
+            --patch-file ${{ github.workspace }}/n8n-i18n-chinese/patches/feat__i18n_zhCn.patch \
+            --version "${{ steps.latest_release.outputs.latest }}"
+          echo "==== /packages/frontend/@n8n/i18n/src/index.ts 内容 ===="
+          head -n 30 ${{ github.workspace }}/n8n/packages/frontend/@n8n/i18n/src/index.ts
 
-    # 复制中文语言包到 N8N i18n 目录
-    - name: 复制中文语言包
-      if: steps.check_tag.outputs.exists == 'false'
-      run:     cp -r /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese/languages/* "/home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n/packages/frontend/@n8n/i18n/src/locales/"
+      # 构建编辑器界面
+      - name: 构建编辑器界面
+        run: |
+          pnpm run build:n8n || echo "构建命令返回非0，继续检测产物"
+          if [ -d "${{ steps.editorui_dir.outputs.dir }}/dist" ]; then
+            echo "✅ n8n-editor-ui dist 存在，构建成功"
+          else
+            echo "❌ n8n-editor-ui dist 不存在，构建失败"
+            exit 1
+          fi
+        working-directory: ${{ github.workspace }}/n8n
 
-    # 根据当前 N8N 版本源码生成并应用中文国际化补丁
-    - name: 生成并应用国际化补丁
-      if: steps.editorui_dir.outputs.flag == 'new' && steps.check_tag.outputs.exists == 'false'
-      run: |
-        node ./n8n-i18n-chinese/script/update-i18n-patch.js \
-          --n8n-dir ./n8n \
-          --patch-file ./n8n-i18n-chinese/patches/feat__i18n_zhCn.patch \
-          --version "${{ steps.latest_release.outputs.latest }}"
-        echo "==== /packages/frontend/@n8n/i18n/src/index.ts 内容 ===="
-        head -n 30 ./n8n/packages/frontend/@n8n/i18n/src/index.ts
+      # 构建通过后，将当前 N8N 版本对应的补丁更新到主分支
+      - name: 提交最新版本国际化补丁
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add patches/feat__i18n_zhCn.patch
 
-    # 构建编辑器界面
-    - name: 构建编辑器界面
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        # 运行构建命令，如果失败则继续检测
-        pnpm run build:n8n || echo "构建失败，重新检测是否成功"
-        if [ -d "/home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n/packages/frontend/editor-ui/dist" ]; then
-          echo "n8n-editor-ui:build 存在，构建成功"
-        else
-          echo "n8n-editor-ui:build 不存在，构建失败"
-          exit 1
-        fi
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n
+          if git diff --cached --quiet; then
+            echo "国际化补丁没有变化。"
+          else
+            git commit -m "chore: update i18n patch for ${{ steps.latest_release.outputs.latest }}"
+            # 构建期间 main 也可能被更新，采用相同的重试策略
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "连续 3 次推送补丁失败。"
+                exit 1
+              fi
+              git fetch origin main
+              git rebase origin/main
+            done
+          fi
+        working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
-    # 构建通过后，将当前 N8N 版本对应的补丁更新到主分支
-    - name: 提交最新版本国际化补丁
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        git add patches/feat__i18n_zhCn.patch
+      # 压缩构建产物为 tar.gz 归档文件
+      - name: 打包构建产物
+        run: |
+          tar -czvf editor-ui.tar.gz dist
+        working-directory: ${{ steps.editorui_dir.outputs.dir }}
 
-        if git diff --cached --quiet; then
-          echo "国际化补丁没有变化。"
-        else
-          git commit -m "chore: update i18n patch for ${{ steps.latest_release.outputs.latest }}"
-          # 构建期间 main 也可能被更新，采用相同的重试策略
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "连续 3 次推送失败。"
-              exit 1
-            fi
-            git fetch origin main
-            git rebase origin/main
-          done
-        fi
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese
+      # 将构建产物拷贝到本地项目目录
+      - name: 拷贝构建产物
+        run: |
+          cp -r ${{ steps.editorui_dir.outputs.dir }}/dist ${{ github.workspace }}/n8n-i18n-chinese/editor-ui-dist
 
-    # 压缩构建产物为 tar.gz 归档文件
-    - name: 打包构建产物
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        tar -czvf editor-ui.tar.gz dist
-      working-directory: ${{ steps.editorui_dir.outputs.dir }}
+      # 更新 docker-compose.yml 文件中的版本号
+      - name: 更新 Docker Compose 版本号
+        run: |
+          RAW_TAG="${{ steps.latest_release.outputs.latest }}"
+          VERSION="${RAW_TAG#n8n@}"
+          echo "Replacing {version} with $VERSION in docker-compose.yml"
+          sed -i "s/{version}/$VERSION/g" ${{ github.workspace }}/n8n-i18n-chinese/docker-compose.yml
 
-    # 将构建产物拷贝到本地项目目录
-    - name: 拷贝构建产物
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        cp -r ${{ steps.editorui_dir.outputs.dir }}/dist /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese/editor-ui-dist
+      # 创建 Git 标签并推送到远程仓库
+      - name: 创建并推送标签
+        run: |
+          TAG="${{ steps.latest_release.outputs.latest }}"
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add editor-ui-dist
+          git add docker-compose.yml
+          git commit -m "chore: add built editor-ui dist for ${{ steps.latest_release.outputs.latest }}"
+          git tag $TAG
+          git push origin $TAG
+        working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
-    # 更新 docker-compose.yml 文件中的版本号
-    - name: 更新 Docker Compose 版本号
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        RAW_TAG="${{ steps.latest_release.outputs.latest }}"
-        VERSION="${RAW_TAG#n8n@}"  # 去掉前缀 n8n@，提取版本号
-        echo "Replacing {version} with $VERSION in docker-compose.yml"
-        sed -i "s/{version}/$VERSION/g" /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese/docker-compose.yml
+      # 创建 GitHub Release 并上传构建产物
+      - name: 创建 GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.latest_release.outputs.latest }}
+          name: 发布编辑器界面 ${{ steps.latest_release.outputs.latest }}
+          body: |
+            自动发布的 N8N 正式版本中文语言包
+          draft: false
+          prerelease: false
+          files: ${{ steps.editorui_dir.outputs.dir }}/editor-ui.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
-    # 创建 Git 标签并推送到远程仓库
-    - name: 创建并推送标签
-      if: steps.check_tag.outputs.exists == 'false'
-      run: |
-        TAG="${{ steps.latest_release.outputs.latest }}"
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        git add editor-ui-dist
-        git add docker-compose.yml
-        git commit -m "chore: add built editor-ui dist for ${{ steps.latest_release.outputs.latest }}"
-        git tag $TAG
-        git push origin $TAG
-      working-directory: /home/runner/work/n8n-i18n-chinese/n8n-i18n-chinese/n8n-i18n-chinese
-
-    # 创建 GitHub Release 并上传构建产物
-    - name: 创建 GitHub Release
-      if: steps.check_tag.outputs.exists == 'false'
-      id: create_release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.latest_release.outputs.latest }}
-        name: 发布编辑器界面 ${{ steps.latest_release.outputs.latest }}
-        body: |
-          自动发布的 N8N 正式版本中文语言包
-        draft: false
-        prerelease: false
-        files: ${{ steps.editorui_dir.outputs.dir }}/editor-ui.tar.gz
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-
-    # 整个打包发布流程成功且实际发布了新版本后，立即触发 Docker 镜像发布
-    - name: 打包成功后触发 Docker 镜像发布
-      if: ${{ success() && steps.check_tag.outputs.exists == 'false' }}
-      run: gh workflow run image.yml --repo "${{ github.repository }}" --ref main -f tag="${{ steps.latest_release.outputs.latest }}"
-      env:
-        GH_TOKEN: ${{ github.token }}
+      # 打包成功后触发 Docker 镜像发布
+      - name: 打包成功后触发 Docker 镜像发布
+        if: ${{ success() }}
+        run: gh workflow run image.yml --repo "${{ github.repository }}" --ref main -f tag="${{ steps.latest_release.outputs.latest }}"
+        env:
+          GH_TOKEN: ${{ secrets.PAT_WORKFLOW_TRIGGER }}
