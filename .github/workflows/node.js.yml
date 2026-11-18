@@ -253,4 +253,4 @@ jobs:
         if: ${{ success() }}
         run: gh workflow run image.yml --repo "${{ github.repository }}" --ref main -f tag="${{ steps.latest_release.outputs.latest }}"
         env:
-          GH_TOKEN: ${{ secrets.PAT_WORKFLOW_TRIGGER }}
+          GH_TOKEN: ${{ github.token }}
