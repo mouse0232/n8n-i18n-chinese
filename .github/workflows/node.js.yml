@@ -128,6 +128,11 @@ jobs:
       - name: 设置 pnpm 解析模式
         run: echo "resolution-mode=highest" >> ${{ github.workspace }}/n8n/.npmrc
 
+      # 安装 N8N 官方仓库的依赖（build:n8n 脚本需要 zx 等 devDependencies）
+      - name: 安装 N8N 依赖
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}/n8n
+
       # 检测编辑器目录结构（新版本在 frontend/editor-ui，旧版本在 editor-ui）
       - name: 检测编辑器目录结构
         id: editorui_dir
