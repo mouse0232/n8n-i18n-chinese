@@ -56,18 +56,26 @@ jobs:
           ref: main
           path: ./n8n-i18n-chinese
 
-      # 检查远程仓库是否已存在该标签
+      # 检查远程仓库是否已存在该标签（以及标签是否有效指向 main 上的 commit）
       - name: 检查标签是否存在
         id: check_tag
         run: |
           TAG="${{ steps.latest_release.outputs.latest }}"
           echo "检查远程标签: $TAG"
-          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ 标签 $TAG 已存在，无需继续构建"
-          else
+          # 先 fetch 远端所有 refs，方便用本地 git 命令判断可达性
+          git fetch --tags origin
+          git fetch origin main:refs/remotes/origin/main
+
+          TAG_TARGET=$(git rev-list -n 1 refs/tags/$TAG 2>/dev/null || echo "")
+          if [ -z "$TAG_TARGET" ]; then
             echo "exists=false" >> $GITHUB_OUTPUT
             echo "✅ 标签 $TAG 不存在，开始构建流程"
+          elif git merge-base --is-ancestor $TAG_TARGET origin/main; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ 标签 $TAG 已存在且有效指向 main 上的 commit，无需继续构建"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ 标签 $TAG 存在但指向 main 上不可达的 orphan commit，将清理重建"
           fi
         working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
@@ -228,8 +236,29 @@ jobs:
           git config --global user.email "github-actions@github.com"
           git add editor-ui-dist
           git add docker-compose.yml
-          git commit -m "chore: add built editor-ui dist for ${{ steps.latest_release.outputs.latest }}"
-          git tag $TAG
+          if git diff --cached --quiet; then
+            echo "没有需要提交的产物变更"
+          else
+            git commit -m "chore: add built editor-ui dist for ${{ steps.latest_release.outputs.latest }}"
+            # 把产物 commit 也 push 进 main，避免远端 tag 指向 main 上不存在的 commit
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "连续 3 次推送 main 失败。"
+                exit 1
+              fi
+              git fetch origin main
+              git rebase origin/main
+            done
+          fi
+          # 远端 tag 已存在则先删除再重建，保证幂等（同版本产物完全一致）
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$\|refs/tags/$TAG^{}$"; then
+            echo "⚠️ 远端标签 $TAG 已存在，先删除再重建"
+            git push origin ":refs/tags/$TAG"
+          fi
+          git tag -f $TAG
           git push origin $TAG
         working-directory: ${{ github.workspace }}/n8n-i18n-chinese
 
